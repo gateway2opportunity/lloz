@@ -1,0 +1,1324 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>local-ops</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111114'/%3E%3Crect x='9' y='9' width='6' height='6' rx='1' fill='%2310b981'/%3E%3Crect x='17' y='17' width='6' height='6' rx='1' fill='%23e6e6ea'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body class="app-body">
+    <header class="topbar">
+      <div class="brand">local<span>-</span>ops</div>
+      <div class="topbar-status">
+        <span id="status-dryrun" class="pill pill-amber" title="dry run"
+          >DRY</span
+        >
+        <span id="status-halt" class="pill pill-red" title="global halt" hidden
+          >HALT</span
+        >
+        <span id="status-socket" class="dot" title="live connection"></span>
+        <span id="status-ws" class="pill pill-grey" title="live event stream"
+          >offline</span
+        >
+        <span id="status-uplink" class="pill pill-grey" title="uptime">…</span>
+      </div>
+      <button id="logout" class="btn btn-ghost" type="button">lock</button>
+    </header>
+
+    <nav class="tabs" id="tabs" role="tablist">
+      <button class="tab active" data-tab="dashboard" role="tab">
+        DASHBOARD
+      </button>
+      <button class="tab" data-tab="campaigns" role="tab">CAMPAIGNS</button>
+      <button class="tab" data-tab="templates" role="tab">TEMPLATES</button>
+      <button class="tab" data-tab="leads" role="tab">LEADS</button>
+      <button class="tab" data-tab="profiles" role="tab">SEND PROFILES</button>
+      <button class="tab" data-tab="autoreply" role="tab">AUTO-REPLY</button>
+      <button class="tab" data-tab="telegram" role="tab">TELEGRAM</button>
+      <button class="tab" data-tab="cloudflare" role="tab">CLOUDFLARE</button>
+      <button class="tab" data-tab="settings" role="tab">SETTINGS</button>
+    </nav>
+
+    <main class="panels">
+      <!-- ================= DASHBOARD ================= -->
+      <section class="panel active" id="panel-dashboard">
+        <div class="kpi-row" id="kpi-row">
+          <div class="kpi card">
+            <span class="kpi-label">campaigns running</span
+            ><span class="kpi-value" id="kpi-running">0</span>
+          </div>
+          <div class="kpi card" id="kpi-sent-card">
+            <span class="kpi-label" id="kpi-sent-label">delivered today</span>
+            <span class="kpi-value" id="kpi-sent">0</span>
+            <span class="kpi-note" id="kpi-sent-note" hidden></span>
+          </div>
+          <div class="kpi card">
+            <span class="kpi-label">dry-run today</span>
+            <span class="kpi-value" id="kpi-dry">0</span>
+          </div>
+          <div class="kpi card">
+            <span class="kpi-label">queue depth</span
+            ><span class="kpi-value" id="kpi-queue">0</span>
+          </div>
+          <div class="kpi card">
+            <span class="kpi-label">errors 24h</span
+            ><span class="kpi-value" id="kpi-errors">0</span>
+          </div>
+          <div class="kpi card">
+            <span class="kpi-label">contacts</span
+            ><span class="kpi-value" id="kpi-contacts">0</span>
+          </div>
+        </div>
+
+        <div id="deliverability-banner" class="banner banner-grey" hidden></div>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <h2>event stream</h2>
+              <div class="card-actions">
+                <label class="mini-check"
+                  ><input type="checkbox" id="stream-autoscroll" checked />
+                  autoscroll</label
+                >
+                <button
+                  class="btn btn-ghost btn-sm"
+                  id="stream-clear"
+                  type="button"
+                >
+                  clear
+                </button>
+              </div>
+            </div>
+            <div class="stream" id="event-stream" aria-live="polite"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>watchdog</h2>
+              <span class="muted" id="watchdog-tick"></span>
+            </div>
+            <div id="watchdog-panel" class="list-tight"></div>
+            <div class="card-head" style="margin-top: 18px">
+              <h2>live campaigns</h2>
+            </div>
+            <div id="dash-campaigns" class="list-tight"></div>
+            <div class="card-head" style="margin-top: 18px">
+              <h2>warm-up</h2>
+            </div>
+            <div id="warmup-panel" class="muted small"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CAMPAIGNS ================= -->
+      <section class="panel" id="panel-campaigns">
+        <div class="card">
+          <div class="card-head">
+            <h2>campaigns</h2>
+            <div class="card-actions">
+              <button class="btn btn-primary" id="new-campaign" type="button">
+                new campaign
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="campaign-table">
+              <thead>
+                <tr>
+                  <th>id</th>
+                  <th>name</th>
+                  <th>status</th>
+                  <th>progress</th>
+                  <th>interval</th>
+                  <th>caps</th>
+                  <th>window</th>
+                  <th>content</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card" id="campaign-log-card" hidden>
+          <div class="card-head">
+            <h2 id="campaign-log-title">log</h2>
+            <div class="card-actions">
+              <button
+                class="btn btn-ghost btn-sm"
+                id="campaign-log-close"
+                type="button"
+              >
+                close
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="campaign-log">
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TEMPLATES ================= -->
+      <section class="panel" id="panel-templates">
+        <div class="card">
+          <div class="card-head">
+            <h2>template sets</h2>
+            <div class="card-actions">
+              <button class="btn btn-primary" id="open-generate" type="button">
+                generate with gemini
+              </button>
+              <button class="btn" id="new-set" type="button">new set</button>
+            </div>
+          </div>
+          <div class="split">
+            <div class="split-left">
+              <div id="sets-list" class="set-list"></div>
+            </div>
+            <div class="split-right">
+              <div id="set-detail" class="set-detail muted">select a set</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" id="template-editor-card">
+          <div class="card-head">
+            <h2 id="template-editor-title">editor</h2>
+            <div class="card-actions">
+              <button class="btn btn-sm" id="tpl-tone-check" type="button">
+                tone check
+              </button>
+              <button class="btn btn-sm" id="tpl-rewrite" type="button">
+                rewrite
+              </button>
+              <button
+                class="btn btn-primary btn-sm"
+                id="tpl-save"
+                type="button"
+              >
+                save
+              </button>
+              <button
+                class="btn btn-danger btn-sm"
+                id="tpl-delete"
+                type="button"
+              >
+                delete
+              </button>
+            </div>
+          </div>
+          <div class="editor-grid">
+            <div class="editor-form">
+              <label>name <input id="tpl-name" type="text" /></label>
+              <label
+                >kind
+                <select id="tpl-kind">
+                  <option value="auto_send">auto_send</option>
+                  <option value="auto_reply">auto_reply</option>
+                  <option value="manual">manual</option>
+                </select>
+              </label>
+              <label>subject <input id="tpl-subject" type="text" /></label>
+              <div class="chips" id="tpl-chips"></div>
+              <label
+                >body (markdown) <textarea id="tpl-body" rows="14"></textarea>
+              </label>
+              <div class="muted small" id="tpl-count">0 words · 0 chars</div>
+              <div id="tpl-guard" class="guard-result" hidden></div>
+            </div>
+            <div class="editor-preview">
+              <div class="preview-subject" id="tpl-preview-subject">
+                subject preview
+              </div>
+              <div class="preview-body" id="tpl-preview-body"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= LEADS ================= -->
+      <section class="panel" id="panel-leads">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h2>import leads</h2></div>
+            <div id="dropzone" class="dropzone">
+              <p>drop <b>.csv .json .xlsx .docx .pdf .txt</b> here</p>
+              <p class="muted small">or click to pick a file (25 MB max)</p>
+              <input
+                type="file"
+                id="file-input"
+                hidden
+                accept=".csv,.tsv,.json,.xlsx,.xlsm,.docx,.pdf,.txt"
+              />
+            </div>
+            <div id="import-preview" hidden>
+              <div class="kv-grid" id="import-stats"></div>
+
+              <div id="import-source-warn" class="banner banner-red" hidden>
+                <b>This file has no source column.</b> Every contact needs a
+                source label before any campaign can launch against them
+                (rules.md rule 12). Pick one below and it will be applied to
+                every row in this import.
+                <div class="row" style="margin-top: 10px">
+                  <label
+                    >source
+                    <select id="import-source">
+                      <option value="opted_in_form">opted_in_form</option>
+                      <option value="referral">referral</option>
+                      <option value="past_client">past_client</option>
+                      <option value="imported_list">imported_list</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="row">
+                <label
+                  >target group
+                  <select id="import-group"></select>
+                </label>
+                <label
+                  >or new group name
+                  <input
+                    id="import-group-name"
+                    type="text"
+                    placeholder="new group"
+                /></label>
+              </div>
+              <label class="mini-check"
+                ><input type="checkbox" id="import-dedupe" checked /> dedupe
+                against existing contacts</label
+              >
+              <div class="row">
+                <button class="btn btn-primary" id="import-run" type="button">
+                  import
+                </button>
+                <button class="btn" id="import-invalid" type="button">
+                  download invalid rows
+                </button>
+              </div>
+              <pre id="import-sample" class="code-block"></pre>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>groups</h2>
+              <div class="card-actions">
+                <button class="btn btn-sm" id="new-group" type="button">
+                  new group
+                </button>
+              </div>
+            </div>
+            <div id="groups-list" class="list-tight"></div>
+          </div>
+        </div>
+
+        <div class="card" id="manual-contact-card">
+          <div class="card-head" style="margin-bottom: 8px">
+            <h2>add one contact</h2>
+          </div>
+          <div class="form-grid">
+            <label>email <input id="mc-email" type="email" placeholder="person@example.com" /></label>
+            <label>first name <input id="mc-first" type="text" /></label>
+            <label>last name <input id="mc-last" type="text" /></label>
+            <label>company <input id="mc-company" type="text" /></label>
+            <label
+              >position <input id="mc-position" type="text" placeholder="optional, for ((position))"
+            /></label>
+            <label
+              >group
+              <select id="mc-group"></select>
+            </label>
+            <label
+              >source (required)
+              <select id="mc-source">
+                <option value="opted_in_form">opted_in_form</option>
+                <option value="referral">referral</option>
+                <option value="past_client">past_client</option>
+                <option value="imported_list">imported_list</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top: 12px">
+            <button class="btn btn-primary" id="mc-add" type="button">add contact</button>
+          </div>
+          <div id="mc-result" class="guard-result" hidden></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>contacts</h2>
+            <div class="card-actions">
+              <input
+                id="lead-search"
+                type="search"
+                placeholder="search email, name, company"
+              />
+              <select id="lead-group-filter">
+                <option value="">all groups</option>
+              </select>
+              <select id="lead-status-filter">
+                <option value="">all statuses</option>
+                <option>active</option>
+                <option>unsubscribed</option>
+                <option>suppressed</option>
+                <option>bounced</option>
+              </select>
+            </div>
+          </div>
+          <div class="bulkbar" id="lead-bulkbar" hidden>
+            <span id="lead-selected">0 selected</span>
+            <button class="btn btn-sm" data-bulk="suppress" type="button">
+              suppress
+            </button>
+            <button class="btn btn-sm" data-bulk="unsuppress" type="button">
+              unsuppress
+            </button>
+            <button class="btn btn-sm" data-bulk="delete" type="button">
+              delete
+            </button>
+            <select id="bulk-move-group"></select>
+            <button class="btn btn-sm" data-bulk="move" type="button">
+              move
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="contacts-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="contacts-all" /></th>
+                  <th>email</th>
+                  <th>name</th>
+                  <th>group</th>
+                  <th>status</th>
+                  <th>last sent</th>
+                  <th>replies</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button class="btn btn-sm" id="leads-prev" type="button">
+              prev
+            </button>
+            <span id="leads-page" class="muted small"></span>
+            <button class="btn btn-sm" id="leads-next" type="button">
+              next
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SEND PROFILES ================= -->
+      <section class="panel" id="panel-profiles">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <h2>send profiles</h2>
+              <div class="card-actions">
+                <button
+                  class="btn btn-primary btn-sm"
+                  id="new-profile"
+                  type="button"
+                >
+                  new profile
+                </button>
+              </div>
+            </div>
+            <div id="profiles-list" class="list-tight"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h2 id="profile-editor-title">profile editor</h2>
+            </div>
+            <div class="form-grid">
+              <label>name <input id="p-name" type="text" /></label>
+              <label
+                >host
+                <input id="p-host" type="text" placeholder="smtp.gmail.com"
+              /></label>
+              <label
+                >port <input id="p-port" type="number" value="587"
+              /></label>
+              <label
+                >username
+                <input id="p-username" type="text" placeholder="you@gmail.com"
+              /></label>
+              <label
+                >app password
+                <span class="inline-field">
+                  <input
+                    id="p-password"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="leave blank to keep"
+                  />
+                  <button
+                    class="btn btn-ghost btn-sm"
+                    type="button"
+                    onclick="
+                      document.getElementById('p-password').type =
+                        document.getElementById('p-password').type ===
+                        'password'
+                          ? 'text'
+                          : 'password'
+                    "
+                  >
+                    reveal
+                  </button>
+                </span>
+              </label>
+              <label>from name <input id="p-from-name" type="text" /></label>
+              <label>from email <input id="p-from-email" type="email" /></label>
+              <label>reply-to <input id="p-reply-to" type="email" /></label>
+              <label
+                >transport
+                <select id="p-transport">
+                  <option value="tls">STARTTLS (587)</option>
+                  <option value="ssl">SSL (465)</option>
+                  <option value="plain">plain (25)</option>
+                </select>
+              </label>
+              <label
+                >daily limit <input id="p-daily" type="number" value="300"
+              /></label>
+              <label class="mini-check"
+                ><input type="checkbox" id="p-default" /> make default</label
+              >
+            </div>
+            <div class="row" style="margin-top: 14px">
+              <button class="btn btn-primary" id="profile-save" type="button">
+                save profile
+              </button>
+              <button class="btn btn-danger" id="profile-delete" type="button">
+                delete
+              </button>
+            </div>
+            <hr class="rule" />
+            <div class="form-grid">
+              <label
+                >test recipient
+                <input id="test-to" type="email" placeholder="you@gmail.com"
+              /></label>
+            </div>
+            <div class="row" style="margin-top: 10px">
+              <button class="btn" id="test-send" type="button">
+                test send
+              </button>
+            </div>
+            <div id="test-result" class="guard-result" hidden></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= AUTO-REPLY ================= -->
+      <section class="panel" id="panel-autoreply">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head">
+              <h2>imap profile</h2>
+              <div class="card-actions">
+                <button
+                  class="btn btn-primary btn-sm"
+                  id="imap-save"
+                  type="button"
+                >
+                  save
+                </button>
+              </div>
+            </div>
+            <div class="form-grid">
+              <label
+                >name <input id="i-name" type="text" placeholder="main inbox"
+              /></label>
+              <label
+                >host
+                <input id="i-host" type="text" placeholder="imap.gmail.com"
+              /></label>
+              <label
+                >port <input id="i-port" type="number" value="993"
+              /></label>
+              <label>username <input id="i-username" type="text" /></label>
+              <label
+                >app password
+                <input
+                  id="i-password"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder="leave blank to keep"
+              /></label>
+              <label
+                >folder <input id="i-folder" type="text" value="INBOX"
+              /></label>
+              <label
+                >poll every
+                <span class="inline-field">
+                  <input id="i-interval" type="number" min="1" value="6" />
+                  <select id="i-unit">
+                    <option value="minutes">minutes</option>
+                    <option value="hours" selected>hours</option>
+                  </select>
+                </span>
+              </label>
+              <label class="mini-check"
+                ><input type="checkbox" id="i-enabled" checked /> enabled</label
+              >
+            </div>
+            <div class="row" style="margin-top: 12px">
+              <button class="btn" id="imap-check-now" type="button">
+                check now
+              </button>
+              <span class="muted small" id="imap-last-checked"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2>rules</h2>
+              <div class="card-actions">
+                <button
+                  class="btn btn-primary btn-sm"
+                  id="new-rule"
+                  type="button"
+                >
+                  new rule
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="table" id="rules-table">
+                <thead>
+                  <tr>
+                    <th>name</th>
+                    <th>match</th>
+                    <th>set</th>
+                    <th>delay</th>
+                    <th>max/day</th>
+                    <th>last fired</th>
+                    <th>on</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>auto-reply log</h2>
+            <div class="card-actions">
+              <button class="btn btn-sm" id="drain-queue" type="button">
+                drain queue now
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="autoreply-log-table">
+              <thead>
+                <tr>
+                  <th>when</th>
+                  <th>contact</th>
+                  <th>rule</th>
+                  <th>template</th>
+                  <th>state</th>
+                  <th>error</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= TELEGRAM ================= -->
+      <section class="panel" id="panel-telegram">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h2>bot config</h2></div>
+            <div class="form-grid">
+              <label
+                >bot token
+                <input
+                  id="tg-token"
+                  type="password"
+                  placeholder="123456:ABC... (leave blank to keep)"
+                  autocomplete="off"
+              /></label>
+              <label
+                >chat id
+                <input id="tg-chat" type="text" placeholder="123456789"
+              /></label>
+              <label
+                >allowed user ids
+                <input id="tg-allowed" type="text" placeholder="111,222222"
+              /></label>
+              <label class="mini-check"
+                ><input type="checkbox" id="tg-enabled" checked />
+                enabled</label
+              >
+            </div>
+            <div class="row" style="margin-top: 12px">
+              <button class="btn btn-primary" id="tg-save" type="button">
+                save
+              </button>
+              <button class="btn" id="tg-test" type="button">
+                connect test
+              </button>
+              <button class="btn" id="tg-send-test" type="button">
+                send test message
+              </button>
+            </div>
+            <div id="tg-result" class="guard-result" hidden></div>
+            <p class="muted small" style="margin-top: 10px">
+              Send <code>/id</code> to the bot to discover your chat id, then
+              paste it above.
+            </p>
+
+            <hr class="rule" />
+            <div class="card-head" style="margin-bottom: 6px">
+              <h2>agent ashley · ai chat</h2>
+              <span id="ai-chat-state" class="pill pill-grey">off</span>
+            </div>
+            <label class="switch-row">
+              <span>answer plain-text messages with Gemini</span>
+              <span class="switch"
+                ><input type="checkbox" id="ai-chat-enabled" /><span
+                  class="slider"
+                ></span
+              ></span>
+            </label>
+            <p class="muted small" style="margin: 4px 0 12px">
+              When on, anything that is not a slash command goes to Agent Ashley
+              with live counts and statuses only. Never contact names, addresses
+              or message bodies. Every exchange is logged under
+              <code>lane=ai_chat</code>.
+            </p>
+            <div class="form-grid">
+              <label
+                >gemini api key
+                <input
+                  id="ai-gemini-key"
+                  type="password"
+                  placeholder="leave blank to keep"
+                  autocomplete="off"
+              /></label>
+              <label
+                >reply timeout (s)
+                <input id="ai-timeout" type="number" min="5" max="180" />
+              </label>
+            </div>
+            <div class="row" style="margin-top: 10px">
+              <button class="btn" id="ai-save" type="button">save ai chat</button>
+              <button class="btn" id="ai-test" type="button">send her a test question</button>
+            </div>
+            <div id="ai-result" class="guard-result" hidden></div>
+
+            <hr class="rule" />
+            <div class="card-head" style="margin-bottom: 6px">
+              <h2>self-upgrade proposals</h2>
+              <span id="proposal-count" class="pill pill-grey">0 pending</span>
+            </div>
+            <p class="muted small" style="margin-top: 4px">
+              Ashley reviews recent failures and proposes diffs. She never
+              applies them: <code>/approve N</code> in Telegram does, with a
+              backup and a rollback if the result does not compile.
+            </p>
+            <div class="row" style="margin-top: 10px">
+              <button class="btn" id="proposal-check" type="button">run upgrade check</button>
+            </div>
+            <div id="proposals-list" class="list-tight" style="margin-top: 12px"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>command log</h2></div>
+            <div class="table-wrap">
+              <table class="table" id="tg-log">
+                <thead>
+                  <tr>
+                    <th>when</th>
+                    <th>user</th>
+                    <th>command</th>
+                    <th>result</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CLOUDFLARE ================= -->
+      <section class="panel" id="panel-cloudflare">
+        <div class="card cf-card">
+          <div class="card-head">
+            <h2>cloudflare worker</h2>
+            <span id="cf-state" class="muted small">disconnected</span>
+          </div>
+
+          <div class="cf-stage" id="cf-stage-url">
+            <label for="cf-url">worker url</label>
+            <div class="inline-field">
+              <input
+                id="cf-url"
+                type="url"
+                placeholder="https://local-ops.<acct>.workers.dev"
+              />
+              <button class="btn btn-primary" id="cf-connect" type="button">
+                connect
+              </button>
+              <span id="cf-connect-mark" class="mark" aria-hidden="true"></span>
+            </div>
+            <div class="progress" id="cf-progress" hidden>
+              <div class="progress-bar" id="cf-progress-bar"></div>
+            </div>
+            <p class="muted small" id="cf-connect-msg"></p>
+          </div>
+
+          <div class="cf-stage" id="cf-stage-secret" hidden>
+            <label for="cf-secret">shared secret</label>
+            <div class="inline-field">
+              <input
+                id="cf-secret"
+                type="password"
+                placeholder="CF_SHARED_SECRET from wrangler"
+                autocomplete="off"
+              />
+              <button class="btn btn-primary" id="cf-validate" type="button">
+                validate
+              </button>
+              <span
+                id="cf-validate-mark"
+                class="mark"
+                aria-hidden="true"
+              ></span>
+            </div>
+            <p class="muted small" id="cf-validate-msg"></p>
+          </div>
+
+          <div class="cf-stage" id="cf-stage-status" hidden>
+            <div class="kv-grid">
+              <div>
+                <span class="muted small">supervisor id</span>
+                <div id="cf-supervisor-id" class="mono">—</div>
+              </div>
+              <div>
+                <span class="muted small">last report</span>
+                <div id="cf-last-report" class="mono">—</div>
+              </div>
+              <div>
+                <span class="muted small">last report ok</span>
+                <div id="cf-last-ok" class="mono">—</div>
+              </div>
+              <div>
+                <span class="muted small">reports enabled</span>
+                <div id="cf-enabled" class="mono">—</div>
+              </div>
+            </div>
+            <label class="mini-check"
+              ><input type="checkbox" id="cf-expose" /> expose dashboard via
+              worker (proxies /api only, never /auth)</label
+            >
+            <div class="row" style="margin-top: 12px">
+              <button class="btn" id="cf-report-now" type="button">
+                send report now
+              </button>
+              <button class="btn btn-ghost" id="cf-view-report" type="button">
+                view report json
+              </button>
+            </div>
+            <pre id="cf-report-json" class="code-block" hidden></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SETTINGS ================= -->
+      <section class="panel" id="panel-settings">
+        <div class="grid-2">
+          <div class="card">
+            <div class="card-head"><h2>llm</h2></div>
+            <div class="form-grid">
+              <label
+                >gemini api key
+                <input
+                  id="s-gemini-key"
+                  type="password"
+                  placeholder="leave blank to keep"
+                  autocomplete="off"
+              /></label>
+              <label>model <input id="s-gemini-model" type="text" /></label>
+              <label
+                >requests per minute
+                <input id="s-gemini-rpm" type="number" min="1" max="60"
+              /></label>
+            </div>
+            <div class="row" style="margin-top: 10px">
+              <button class="btn" id="s-gemini-test" type="button">
+                test key</button
+              ><span id="s-gemini-result" class="muted small"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>sending</h2></div>
+            <label class="switch-row">
+              <span>global dry run</span>
+              <span class="switch"
+                ><input type="checkbox" id="s-dryrun" /><span
+                  class="slider"
+                ></span
+              ></span>
+            </label>
+            <div class="form-grid">
+              <label
+                >global daily cap <input id="s-daily-cap" type="number" min="1"
+              /></label>
+              <label
+                >pacing floor (s)
+                <input id="s-pacing-floor" type="number" min="1"
+              /></label>
+            </div>
+            <label class="switch-row" style="margin-top: 10px">
+              <span>warm-up ramp</span>
+              <span class="switch"
+                ><input type="checkbox" id="s-warmup" /><span
+                  class="slider"
+                ></span
+              ></span>
+            </label>
+            <div class="form-grid">
+              <label>ramp (csv) <input id="s-warmup-ramp" type="text" /></label>
+            </div>
+            <div class="muted small" id="s-warmup-status"></div>
+            <p class="muted small" style="margin-top: 8px">
+              The ramp lives in <code>knowledge/warmup.json</code>. This csv is
+              the fallback if that file is missing or malformed.
+            </p>
+
+            <hr class="rule" />
+            <h2 style="margin-bottom: 8px">operator identity</h2>
+            <div class="form-grid">
+              <label
+                >your name
+                <input
+                  id="s-operator-name"
+                  type="text"
+                  placeholder="Kut Milz"
+              /></label>
+            </div>
+            <p class="muted small" style="margin-top: 6px">
+              Signs every outbound email as <code>{{operator_name}}</code>.
+              SOUL.md writes as one person, not a team.
+            </p>
+
+            <hr class="rule" />
+            <label class="switch-row">
+              <span>require a source label on every contact (rules.md 12)</span>
+              <span class="switch"
+                ><input type="checkbox" id="s-require-source" /><span
+                  class="slider"
+                ></span
+              ></span>
+            </label>
+            <p class="muted small" id="s-unlabelled" style="margin-top: 4px">
+              checking…
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>deliverability doctor</h2></div>
+            <div class="form-grid">
+              <label
+                >from domain
+                <input id="s-domain" type="text" placeholder="yourdomain.com"
+              /></label>
+              <label
+                >dkim selector
+                <input id="s-dkim" type="text" placeholder="google"
+              /></label>
+            </div>
+            <div class="row" style="margin-top: 10px">
+              <button class="btn btn-primary" id="s-doctor" type="button">
+                run doctor
+              </button>
+            </div>
+            <div id="doctor-results" class="doctor" hidden></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>watchdog &amp; imap</h2></div>
+            <div class="form-grid">
+              <label
+                >watchdog interval (s)
+                <input id="s-wd-interval" type="number" min="2"
+              /></label>
+              <label
+                >heartbeat interval (s)
+                <input id="s-hb-interval" type="number" min="1"
+              /></label>
+              <label
+                >stale threshold (s) <input id="s-stale" type="number" min="3"
+              /></label>
+              <label
+                >max restarts <input id="s-max-restarts" type="number" min="1"
+              /></label>
+              <label
+                >imap default poll
+                <input id="s-imap-value" type="number" min="1"
+              /></label>
+              <label
+                >imap unit
+                <select id="s-imap-unit">
+                  <option value="minutes">minutes</option>
+                  <option value="hours">hours</option>
+                </select>
+              </label>
+              <label
+                >cf report interval (s)
+                <input id="s-cf-interval" type="number" min="15"
+              /></label>
+              <label
+                >shell allowlist (csv) <input id="s-shell" type="text"
+              /></label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><h2>auth</h2></div>
+            <p class="muted small">
+              Rotating the token invalidates every existing session, including
+              this one.
+            </p>
+            <div class="row" style="margin-top: 10px">
+              <button class="btn btn-danger" id="s-rotate" type="button">
+                regenerate admin token
+              </button>
+            </div>
+            <div id="rotate-result" class="rotate-box" hidden>
+              <p class="warn">save it now, it is shown once</p>
+              <div class="inline-field">
+                <input id="rotate-token" type="text" readonly /><button
+                  class="btn btn-sm"
+                  id="rotate-copy"
+                  type="button"
+                >
+                  copy
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card danger">
+            <div class="card-head"><h2>danger zone</h2></div>
+            <div class="row">
+              <a class="btn" href="/api/settings/export-db">export database</a>
+              <button class="btn btn-danger" id="s-wipe" type="button">
+                wipe database
+              </button>
+            </div>
+            <p class="muted small" style="margin-top: 8px">
+              Wipe requires typing <code>WIPE</code> twice.
+            </p>
+          </div>
+        </div>
+
+        <div class="row sticky-save">
+          <button class="btn btn-primary" id="s-save" type="button">
+            save all settings
+          </button>
+          <span class="muted small" id="s-save-result"></span>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============ campaign wizard ============ -->
+    <div class="modal" id="wizard" hidden>
+      <div class="modal-card wide">
+        <div class="modal-head">
+          <h2>new campaign</h2>
+          <ol class="stepper" id="wizard-stepper">
+            <li class="active" data-step="1">who &amp; from</li>
+            <li data-step="2">what</li>
+            <li data-step="3">when &amp; limits</li>
+          </ol>
+          <button class="btn btn-ghost btn-sm" id="wizard-close" type="button">
+            ✕
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="wizard-step" data-step="1">
+            <div class="form-grid">
+              <label
+                >campaign name
+                <input id="w-name" type="text" placeholder="october winners"
+              /></label>
+              <label
+                >send profile
+                <select id="w-profile"></select
+              ></label>
+              <label
+                >contact group
+                <select id="w-group"></select
+              ></label>
+            </div>
+            <p class="muted small" id="w-group-hint"></p>
+          </div>
+          <div class="wizard-step" data-step="2" hidden>
+            <div class="form-grid">
+              <label
+                >template set
+                <select id="w-set"></select
+              ></label>
+              <label
+                >or single template
+                <select id="w-template">
+                  <option value="">— none —</option>
+                </select></label
+              >
+            </div>
+            <label
+              >subject template
+              <input
+                id="w-subject"
+                type="text"
+                placeholder="You won, {{first_name}}"
+            /></label>
+            <div class="chips" id="w-chips"></div>
+            <label
+              >body template
+              <textarea
+                id="w-body"
+                rows="8"
+                placeholder="Plain markdown. {{first_name}} inserts the contact name."
+              ></textarea>
+            </label>
+            <div class="editor-preview" style="margin-top: 10px">
+              <div class="preview-subject" id="w-preview-subject">
+                preview subject
+              </div>
+              <div class="preview-body" id="w-preview-body"></div>
+            </div>
+          </div>
+          <div class="wizard-step" data-step="3" hidden>
+            <div class="form-grid">
+              <label
+                >interval min (s)
+                <input id="w-min" type="range" min="5" max="600" value="45" /><b
+                  id="w-min-val"
+                  >45</b
+                ></label
+              >
+              <label
+                >interval max (s)
+                <input
+                  id="w-max"
+                  type="range"
+                  min="5"
+                  max="1200"
+                  value="180"
+                /><b id="w-max-val">180</b></label
+              >
+              <label
+                >daily cap <input id="w-daily" type="number" value="200"
+              /></label>
+              <label
+                >total cap <input id="w-total" type="number" value="500"
+              /></label>
+              <label
+                >window start <input id="w-start" type="time" value="09:00"
+              /></label>
+              <label
+                >window end <input id="w-end" type="time" value="18:00"
+              /></label>
+              <label
+                >timezone
+                <input
+                  id="w-tz"
+                  type="text"
+                  value="UTC"
+                  placeholder="UTC or Europe/London"
+              /></label>
+              <label class="mini-check"
+                ><input type="checkbox" id="w-dryrun" checked /> dry run</label
+              >
+              <label class="mini-check"
+                ><input type="checkbox" id="w-strict" /> strict content guard
+                (block failing copy)</label
+              >
+              <label class="mini-check" id="w-risk-wrap"
+                ><input type="checkbox" id="w-risk" /> I understand pacing risk
+                (allows &lt; 30s)</label
+              >
+            </div>
+            <div class="review" id="w-review"></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="wizard-back" type="button">
+            back
+          </button>
+          <button class="btn" id="wizard-save" type="button">save draft</button>
+          <button class="btn btn-primary" id="wizard-next" type="button">
+            next
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ gemini modal ============ -->
+    <div class="modal" id="gen-modal" hidden>
+      <div class="modal-card wide">
+        <div class="modal-head">
+          <h2>generate with gemini</h2>
+          <button class="btn btn-ghost btn-sm" id="gen-close" type="button">
+            ✕
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <label
+              >kind
+              <select id="gen-kind">
+                <option value="auto_reply">auto_reply</option>
+                <option value="auto_send">auto_send</option>
+              </select>
+            </label>
+            <label
+              >how many
+              <input id="gen-count" type="number" min="1" max="10" value="3"
+            /></label>
+            <label
+              >angle
+              <input
+                id="gen-angle"
+                type="text"
+                placeholder="reminder, congrats, not selected"
+            /></label>
+          </div>
+          <div class="knowledge-checks" id="gen-knowledge"></div>
+          <div class="row" style="margin-top: 10px">
+            <button class="btn btn-primary" id="gen-run" type="button">
+              generate</button
+            ><span id="gen-status" class="muted small"></span>
+          </div>
+          <div class="gen-grid" id="gen-results"></div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="gen-cancel" type="button">
+            close
+          </button>
+          <button class="btn btn-primary" id="gen-accept" type="button">
+            accept into new set
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ rule modal ============ -->
+    <div class="modal" id="rule-modal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="rule-modal-title">auto-reply rule</h2>
+          <button class="btn btn-ghost btn-sm" id="rule-close" type="button">
+            ✕
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <label>name <input id="r-name" type="text" /></label>
+            <label
+              >match type
+              <select id="r-type">
+                <option value="from">from address contains</option>
+                <option value="subject_contains">subject contains</option>
+                <option value="body_contains">body contains</option>
+                <option value="regex">regex</option>
+              </select>
+            </label>
+            <label>pattern <input id="r-pattern" type="text" /></label>
+            <label
+              >template set
+              <select id="r-set"></select
+            ></label>
+            <label
+              >delay
+              <span class="inline-field">
+                <input id="r-delay" type="number" min="0" value="30" />
+                <select id="r-unit">
+                  <option value="seconds">seconds</option>
+                  <option value="minutes" selected>minutes</option>
+                  <option value="hours">hours</option>
+                </select>
+              </span>
+            </label>
+            <label
+              >max per contact per day
+              <input id="r-max" type="number" min="1" value="1"
+            /></label>
+            <label class="mini-check"
+              ><input type="checkbox" id="r-enabled" checked /> enabled</label
+            >
+          </div>
+          <hr class="rule" />
+          <p class="muted small">test against a sample email</p>
+          <div class="form-grid">
+            <label
+              >from
+              <input
+                id="r-sample-from"
+                type="email"
+                placeholder="someone@example.com"
+            /></label>
+            <label>subject <input id="r-sample-subject" type="text" /></label>
+          </div>
+          <textarea
+            id="r-sample-body"
+            rows="3"
+            placeholder="body text"
+          ></textarea>
+          <div class="row" style="margin-top: 8px">
+            <button class="btn btn-sm" id="r-test" type="button">test</button
+            ><span id="r-test-result" class="muted small"></span>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="rule-cancel" type="button">
+            cancel
+          </button>
+          <button class="btn btn-primary" id="rule-save" type="button">
+            save rule
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ generic modal ============ -->
+    <div class="modal" id="generic-modal" hidden>
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2 id="generic-title">confirm</h2>
+          <button class="btn btn-ghost btn-sm" id="generic-close" type="button">
+            ✕
+          </button>
+        </div>
+        <div class="modal-body" id="generic-body"></div>
+        <div class="modal-foot" id="generic-foot"></div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/campaign-wizard.js"></script>
+    <script src="/static/js/templates.js"></script>
+    <script src="/static/js/cf.js"></script>
+  </body>
+</html>
